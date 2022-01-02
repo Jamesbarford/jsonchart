@@ -206,7 +206,7 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
     return outstr;
 }
 
-static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
+static char *chartXAxisCreate(chartDimensions *dimensions, int numTicks,
         chartFormatter *formatter, double *xTicks, int *outlen)
 {
     char *xAxis, tickBuf[200];
@@ -226,20 +226,20 @@ static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
             "</g>",
             AXIS_COLOR,
             // bottom positioning
-            cDims->marginLeft - cDims->marginRight,
-            cDims->width + cDims->marginLeft - cDims->marginRight,
-            cDims->height, cDims->height);
+            dimensions->marginLeft - dimensions->marginRight,
+            dimensions->width + dimensions->marginLeft - dimensions->marginRight,
+            dimensions->height, dimensions->height);
 
     // The label calculations
     acc = 0;
     tickSpace =
-            (double)(cDims->width + cDims->marginRight + cDims->marginRight) /
+            (double)(dimensions->width + dimensions->marginRight + dimensions->marginRight) /
             numTicks;
 
     *outlen += snprintf(xAxis + *outlen, BUFSIZ,
             "<g transform=\"translate(0, %d)\" fill=\"none\" font-size=\"10\""
             " font-family=\"sans-serif\" text-anchor=\"middle\">",
-            cDims->height);
+            dimensions->height);
 
     // bottom ticks
     for (i = 0; i < numTicks; ++i) {
@@ -251,7 +251,7 @@ static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
                 "fill=\"currentColor\""
                 " transform=\"rotate(-60)\" y=\"%d\" dy=\"-.1em\">%s</text>"
                 "</g>",
-                cDims->width - acc,
+                dimensions->width - acc,
                 TICK_COLOR,
                 // the little dash
                 6,
@@ -268,7 +268,7 @@ static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
     return xAxis;
 }
 
-static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
+static char *chartYAxisCreate(chartDimensions *dimensions, int numTicks,
         chartFormatter *formatter, double *yTicks, int *outlen)
 {
     char *yAxis, tickBuf[200];
@@ -286,17 +286,17 @@ static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
             " x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\"></line>"
             "</g>",
             AXIS_COLOR,
-            cDims->marginLeft - cDims->marginRight,
-            cDims->marginLeft - cDims->marginRight, cDims->marginTop,
-            cDims->height);
+            dimensions->marginLeft - dimensions->marginRight,
+            dimensions->marginLeft - dimensions->marginRight, dimensions->marginTop,
+            dimensions->height);
 
     *outlen += snprintf(yAxis + *outlen, BUFSIZ,
             "<g transform=\"translate(%d, 0)\" fill=\"none\" font-size=\"10\""
             " font-family=\"sans-serif\" text-anchor=\"middle\">",
-            cDims->marginLeft - cDims->marginRight - 7);
+            dimensions->marginLeft - dimensions->marginRight - 7);
 
     acc = 0;
-    tickSpace = (((double)cDims->height) / numTicks) + 0.5;
+    tickSpace = (((double)dimensions->height) / numTicks) + 0.5;
     // y axis ticks
     for (i = 0; i < numTicks; ++i) {
         formatter(yTicks[i], tickBuf);
@@ -308,7 +308,7 @@ static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
                 "dy=\"0.32em\">%s</text>"
                 "</g>",
                 // spacing
-                (cDims->height - acc),
+                (dimensions->height - acc),
                 TICK_COLOR,
                 // the little dash
                 6,
@@ -323,41 +323,15 @@ static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
     return yAxis;
 }
 
-char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
-        chartAxisFormatters *formatters, int width, int height, int *outlen)
+static char *_chartLineCreateSVG(chartPointArray *cp_array, chartDimensions *dimensions,
+        chartAxisFormatters *formatters, int width, int height, chartScale **scales,
+        int *outlen)
 {
-    chartDimensions cDims;
+    chartScale *csy, *csx;
     chartFormatter *yFormatter, *xFormatter;
-    chartPointArray cpArr;
-    char *svgbuf, *lineBuf, *xAxis, *yAxis;
-    int lineBufLen, yAxisLen, xAxisLen;
-    double yTicks[12], xTicks[5];
-
-    svgbuf = NULL;
-    lineBuf = NULL;
-    xAxis = NULL;
-    yAxis = NULL;
-    *outlen = 0;
-    chartScale csy, csx, *scales[2];
-
-    cDims.marginBottom = 80;
-    cDims.marginLeft = 60;
-    cDims.marginTop = 10;
-    cDims.marginRight = 10;
-    cDims.width = width - cDims.marginLeft - cDims.marginRight;
-    cDims.height = height - cDims.marginBottom - cDims.marginTop;
-
-    chartInitScale(&csy);
-    chartInitScale(&csx);
-
-    scales[X_AXIS] = &csx;
-    scales[Y_AXIS] = &csy;
-
-    cpArr.len = arr_len;
-    cpArr.xValues = x_values;
-    cpArr.yValues = y_values;
-
-    chartCalculateScales(&cDims, &cpArr, scales);
+    char *svgbuf, *linebuf, *x_axis, *y_axis;
+    int linebuf_len, y_axis_len, x_axis_len;
+    double y_ticks[12], x_ticks[5];
 
     if (formatters == NULL || (yFormatter = formatters->yFormatter) == NULL)
         yFormatter = _yAxisDefaultFormatter;
@@ -365,26 +339,31 @@ char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
     if (formatters == NULL || (xFormatter = formatters->xFormatter) == NULL)
         xFormatter = _xAxisDefaultFormatter;
 
-    _getRange(csx.valMin, csx.valMax, xTicks, 5);
-    _getRange(csy.valMin, csy.valMax, yTicks, 12);
+    x_axis = y_axis = svgbuf = linebuf = NULL;
+    linebuf_len = y_axis_len = x_axis_len = 0;
 
-    lineBufLen = 0;
-    yAxisLen = 0;
-    xAxisLen = 0;
+    csy = scales[Y_AXIS];
+    csx = scales[X_AXIS];
+    csy->rangeMin = 0;
+    csy->rangeMax = dimensions->height - dimensions->marginTop;
 
-    if ((xAxis = chartXAxisCreate(&cDims, 5, xFormatter, xTicks, &xAxisLen)) ==
-            NULL)
+    _getRange(csx->valMin, csx->valMax, x_ticks, 5);
+    _getRange(csy->valMin, csy->valMax, y_ticks, 12);
+
+    if ((x_axis = chartXAxisCreate(dimensions, 5, xFormatter, x_ticks,
+                    &x_axis_len)) == NULL)
         goto svg_finalise;
 
-    if ((yAxis = chartYAxisCreate(&cDims, 12, yFormatter, yTicks, &yAxisLen)) ==
-            NULL)
+    if ((y_axis = chartYAxisCreate(dimensions, 12, yFormatter, y_ticks,
+                    &y_axis_len)) == NULL)
         goto svg_finalise;
 
-    if ((lineBuf = _chartLinePointsToString(&cpArr, &cDims, &csy, &lineBufLen)) == NULL)
+    if ((linebuf = _chartLinePointsToString(cp_array, dimensions, csy,
+                    &linebuf_len)) == NULL)
         goto svg_finalise;
 
     if ((svgbuf = malloc(sizeof(char *) *
-                         (BUFSIZ + yAxisLen + xAxisLen + lineBufLen))) == NULL)
+                    (BUFSIZ + y_axis_len + x_axis_len + linebuf_len))) == NULL)
         goto svg_finalise;
 
     *outlen = snprintf(svgbuf, BUFSIZ << 10,
@@ -392,24 +371,58 @@ char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
             "xmlns=\"http://www.w3.org/2000/svg\">"
             "<rect width=\"100%%\" height=\"100%%\" fill=\"white\" />"
             "%s%s%s</svg>",
-            width, height, xAxis, yAxis, lineBuf);
+            width, height, x_axis, y_axis, linebuf);
 
     svgbuf[*outlen] = '\0';
 
 svg_finalise:
-    if (xAxis)
-        free(xAxis);
-    if (yAxis)
-        free(yAxis);
-    if (lineBuf)
-        free(lineBuf);
+    if (x_axis)
+        free(x_axis);
+    if (y_axis)
+        free(y_axis);
+    if (linebuf)
+        free(linebuf);
 
     return svgbuf;
+
+    return NULL;
+}
+
+char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
+        chartAxisFormatters *formatters, int width, int height, int *outlen)
+{
+    chartDimensions dimensions;
+    chartPointArray cp_array;
+    chartScale csy, csx, *scales[2];
+
+    *outlen = 0;
+
+    cp_array.len = arr_len;
+    cp_array.xValues = x_values;
+    cp_array.yValues = y_values;
+
+    dimensions.marginBottom = 80;
+    dimensions.marginLeft = 60;
+    dimensions.marginTop = 10;
+    dimensions.marginRight = 10;
+    dimensions.width = width - dimensions.marginLeft - dimensions.marginRight;
+    dimensions.height = height - dimensions.marginBottom - dimensions.marginTop;
+
+    chartInitScale(&csy);
+    chartInitScale(&csx);
+
+    scales[X_AXIS] = &csx;
+    scales[Y_AXIS] = &csy;
+
+    chartCalculateScales(&dimensions, &cp_array, scales);
+
+    return _chartLineCreateSVG(&cp_array, &dimensions, formatters, width,
+            height, scales, outlen);
 }
 
 /* Takes all of the computed values creating an SVG */
 static char *_chartMultiCreateSVG(int arrayCount, chartPointArray *cpArrays,
-        chartDimensions *cDims, chartFormatter *yFormatter,
+        chartDimensions *dimensions, chartFormatter *yFormatter,
         chartFormatter *xFormatter, double *xTicks, int xTickCount,
         double *yTicks, int yTickCount, chartScale *csy, int *outlen)
 {
@@ -430,17 +443,17 @@ static char *_chartMultiCreateSVG(int arrayCount, chartPointArray *cpArrays,
         cpArr = &cpArrays[i];
 
         if ((lineChartBuffers[i] = _chartLinePointsToString(
-                     cpArr, cDims, csy, &lineBufLen)) == NULL)
+                     cpArr, dimensions, csy, &lineBufLen)) == NULL)
             goto chart_finalise;
     }
 
     /* Step 2: create axis buffers */
     if ((xAxis = chartXAxisCreate(
-                 cDims, xTickCount, xFormatter, xTicks, &xAxisLen)) == NULL)
+                 dimensions, xTickCount, xFormatter, xTicks, &xAxisLen)) == NULL)
         goto chart_finalise;
 
     if ((yAxis = chartYAxisCreate(
-                 cDims, yTickCount, yFormatter, yTicks, &yAxisLen)) == NULL)
+                 dimensions, yTickCount, yFormatter, yTicks, &yAxisLen)) == NULL)
         goto chart_finalise;
 
     /* Step 3: create SVG buffer */
@@ -453,7 +466,7 @@ static char *_chartMultiCreateSVG(int arrayCount, chartPointArray *cpArrays,
     *outlen = snprintf(svgbuf, svgbufSize,
             "<svg width=\"%d\" height=\"%d\" font-family=\"sans-serif\" "
             "xmlns=\"http://www.w3.org/2000/svg\">%s%s",
-            cDims->width, cDims->height, xAxis, yAxis);
+            dimensions->width, dimensions->height, xAxis, yAxis);
 
     for (j = 0; j < arrayCount; ++j) {
         *outlen += snprintf(
@@ -477,7 +490,7 @@ chart_finalise:
 /**
  * We try and assemble as much as possible in this function to be plotted
  */
-static char *_chartMultiCalculateAxisAndCreateSVG(chartDimensions *cDims,
+static char *_chartMultiCalculateAxisAndCreateSVG(chartDimensions *dimensions,
         int arrayCount, chartPointArray *cpArrays, chartFormatter *yFormatter,
         chartFormatter *xFormatter, int *outlen)
 {
@@ -513,11 +526,11 @@ static char *_chartMultiCalculateAxisAndCreateSVG(chartDimensions *cDims,
     _getRange(minY, maxY, yTicks, 12);
 
     csy.rangeMin = 0;
-    csy.rangeMax = cDims->height - cDims->marginTop;
+    csy.rangeMax = dimensions->height - dimensions->marginTop;
     csy.valMin = minY;
     csy.valMax = maxY;
 
-    svgbuf = _chartMultiCreateSVG(arrayCount, cpArrays, cDims, yFormatter,
+    svgbuf = _chartMultiCreateSVG(arrayCount, cpArrays, dimensions, yFormatter,
             xFormatter, xTicks, 5, yTicks, 12, &csy, outlen);
 
     return svgbuf;
@@ -532,7 +545,7 @@ char *chartLineMultiCreateSVG(int width, int height, int arrayCount,
 {
     char *svgbuf;
     int i;
-    chartDimensions cDims;
+    chartDimensions dimensions;
     chartFormatter *yFormatter, *xFormatter;
     chartPointArray *cp_arrays;
 
@@ -551,15 +564,15 @@ char *chartLineMultiCreateSVG(int width, int height, int arrayCount,
     if (formatters == NULL || (xFormatter = formatters->xFormatter) == NULL)
         xFormatter = _xAxisDefaultFormatter;
 
-    cDims.marginBottom = 80;
-    cDims.marginLeft = 60;
-    cDims.marginTop = 10;
-    cDims.marginRight = 10;
-    cDims.width = width - cDims.marginLeft - cDims.marginRight;
-    cDims.height = height - cDims.marginBottom - cDims.marginTop;
+    dimensions.marginBottom = 80;
+    dimensions.marginLeft = 60;
+    dimensions.marginTop = 10;
+    dimensions.marginRight = 10;
+    dimensions.width = width - dimensions.marginLeft - dimensions.marginRight;
+    dimensions.height = height - dimensions.marginBottom - dimensions.marginTop;
 
     svgbuf = _chartMultiCalculateAxisAndCreateSVG(
-            &cDims, arrayCount, cp_arrays, yFormatter, xFormatter, outlen);
+            &dimensions, arrayCount, cp_arrays, yFormatter, xFormatter, outlen);
 
     free(cp_arrays);
 
@@ -594,7 +607,6 @@ int chartCreateFile(char *filename, char *svgbuf, int outlen) {
     return 1;
 }
 
-#ifdef JSON_CHART_CLI
 #include <errno.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -675,8 +687,15 @@ static void printJsonPathError(char *path, int j_type, char *strvalue) {
 
 static void fillAxis(cJSON *json, int arr_len, double *x_values,
         double *y_values, int x_type, int y_type, char *x_value_name,
-        char *y_value_name, int reverse)
+        char *y_value_name, int reverse, chartScale **scales)
 {
+    chartScale *csy, *csx;
+
+    csy = scales[Y_AXIS];
+    csx = scales[X_AXIS];
+
+    chartInitScale(csy);
+    chartInitScale(csx);
     cJSON *el;
     int i;
     double x, y;
@@ -692,6 +711,12 @@ static void fillAxis(cJSON *json, int arr_len, double *x_values,
 
             x_values[i] = (double)x;
             y_values[i] = (double)y;
+
+            if (x > csx->valMax) csx->valMax = x;
+            if (x < csx->valMin) csx->valMin = x;
+
+            if (y > csy->valMax) csy->valMax = y;
+            if (y < csy->valMin) csy->valMin = y;
             i++;
         }
     } else {
@@ -705,6 +730,11 @@ static void fillAxis(cJSON *json, int arr_len, double *x_values,
 
             x_values[i-1] = (double)x;
             y_values[i-1] = (double)y;
+
+            if (x > csx->valMax) csx->valMax = x;
+            if (x < csx->valMin) csx->valMin = x;
+            if (y > csy->valMax) csy->valMax = y;
+            if (y < csy->valMin) csy->valMin = y;
             --i;
         }
     }
@@ -714,6 +744,9 @@ static void fillAxis(cJSON *json, int arr_len, double *x_values,
 int main(int argc, char **argv) {
     progname = argv[0];
 
+    chartDimensions dimensions;
+    chartScale csx, csy, *scales[2];
+    chartPointArray cp_array;
     cJSON *json;
     int x_type, y_type, has_err, arr_size, reverse;
     char *x_value_name, *y_value_name, *filename, *out_filename, *raw_json,
@@ -820,18 +853,34 @@ int main(int argc, char **argv) {
                 arr_size, strerror(errno));
         exit(EXIT_FAILURE);
     }
-    (void)reverse;
+
+    chartInitScale(&csy);
+    chartInitScale(&csx);
+
+    scales[X_AXIS] = &csx;
+    scales[Y_AXIS] = &csy;
 
     fillAxis(json, arr_size, xValues, yValues, x_type, y_type, x_value_name,
-            y_value_name, reverse);
+            y_value_name, reverse, scales);
+
+    cp_array.len = arr_size;
+    cp_array.xValues = xValues;
+    cp_array.yValues = yValues;
+
+    dimensions.marginBottom = 80;
+    dimensions.marginLeft = 60;
+    dimensions.marginTop = 10;
+    dimensions.marginRight = 10;
+    dimensions.width = width - dimensions.marginLeft - dimensions.marginRight;
+    dimensions.height = height - dimensions.marginBottom - dimensions.marginTop;
 
     /* Create SVG Chart */
     chartname_len = snprintf(chartname, sizeof(chartname) * sizeof(char),
             "%s.svg", out_filename);
     chartname[chartname_len] = '\0';
 
-    if ((svgbuf = chartLineCreateSVG(xValues, yValues, arr_size, NULL, width,
-                 height, &svgbuf_len)) == NULL)
+    if ((svgbuf = _chartLineCreateSVG(&cp_array, &dimensions, NULL, width,
+                 height, scales, &svgbuf_len)) == NULL)
     {
         fprintf(stderr, "ERROR: Failed to create svg buffer\n");
         exit(EXIT_FAILURE);
@@ -847,4 +896,3 @@ int main(int argc, char **argv) {
     munmap(raw_json, sb.st_size);
     return 0;
 }
-#endif
