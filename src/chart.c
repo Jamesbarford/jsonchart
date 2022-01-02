@@ -44,19 +44,23 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <float.h>
 
 #include "chart.h"
 
-#ifndef abs
-#define abs(x) ((x) >= 0 ? (x) : -1 * (x))
-#endif
 
 #define X_AXIS 0
 #define Y_AXIS 1
 
+#define abs(x) ((x) >= 0 ? (x) : -1 * (x))
+
 #define chartInitScale(cs)                                                     \
-    ((cs)->valMax = -10000000, (cs)->valMin = 10000000, (cs)->rangeMin = 0,    \
+    ((cs)->valMax = DBL_MIN, (cs)->valMin = DBL_MAX, (cs)->rangeMin = 0,       \
             (cs)->rangeMax = 0)
+
+#define linearScale(cs, value)                                                 \
+    (((value) - (cs->valMin)) * ((cs)->rangeMax - (cs)->rangeMin) /            \
+        ((cs)->valMax - (cs)->valMin) + (cs)->rangeMin)
 
 typedef struct chartPointArray {
     int len;
@@ -80,29 +84,17 @@ typedef struct chartScale {
     double rangeMax;
 } chartScale;
 
-static inline double _chartLinearScale(double value, double minValue,
-        double maxValue, double minRange, double maxRange)
-{
-    return (value - minValue) * (maxRange - minRange) /
-           (maxValue - minValue) + minRange;
-}
-
-static double chartLinearScale(chartScale *cs, double value) {
-    return _chartLinearScale(value, cs->valMin, cs->valMax,
-            cs->rangeMin, cs->rangeMax);
-}
-
 static void _xAxisDefaultFormatter(double val, char *buf) {
     int len;
 
-    len = snprintf(buf, TICK_BUFSIZ, "%.4f", val);
+    len = snprintf(buf, TICK_BUFSIZ, "%.2f", val);
     buf[len] = '\0';
 }
 
 static void _yAxisDefaultFormatter(double val, char *buf) {
     int len;
 
-    len = snprintf(buf, TICK_BUFSIZ, "%.4f", val);
+    len = snprintf(buf, TICK_BUFSIZ, "%.2f", val);
     buf[len] = '\0';
 }
 
@@ -124,21 +116,19 @@ static void _getRange(double min, double max, double *out, int outlen) {
     iters = step * (outlen - 1);
 
     j = 0;
-    for (i = 0; i < iters; i += step) {
+    for (i = 0; i < iters; i += step)
         out[j++] = (min + i);
-        printf("%.2f\n", min + i);
-    }
 
     out[outlen - 1] = max;
 }
 
 static void chartCalculateScales(chartDimensions *dimensions,
-        chartPointArray *cp_array, chartScale *scales)
+        chartPointArray *cp_array, chartScale **scales)
 {
     chartScale *csy, *csx;
     int i;
-    csy = &scales[Y_AXIS];
-    csx = &scales[X_AXIS];
+    csy = scales[Y_AXIS];
+    csx = scales[X_AXIS];
 
     for (i = 0; i < cp_array->len; ++i) {
         double x = cp_array->xValues[i];
@@ -190,7 +180,7 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
     offset = 0;
 
     x = (cDim->marginLeft + (cDim->width - acc)) - cDim->marginRight;
-    y = cDim->height - chartLinearScale(csy, cpArr->yValues[0]);
+    y = cDim->height - linearScale(csy, cpArr->yValues[0]);
     acc += xSpace;
 
     offset += sprintf(outstr,
@@ -199,9 +189,9 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
             "d=\"M%.10f,%.10f",
             x, y);
 
-    for (i = 1; i < cpArr->len; ++i) {
+    for (i = cpArr->len; i >= 0; --i) {
         x = (cDim->marginLeft + (cDim->width - acc)) - cDim->marginRight;
-        y = cDim->height - chartLinearScale(csy, cpArr->yValues[i]);
+        y = cDim->height - linearScale(csy, cpArr->yValues[i]);
 
         offset += sprintf(outstr + offset, "L%.10f,%.10f", x, y);
         acc += xSpace;
@@ -213,8 +203,9 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
     return outstr;
 }
 
-char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
-        chartFormatter *formatter, double *xTicks, int *outlen) {
+static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
+        chartFormatter *formatter, double *xTicks, int *outlen)
+{
     char *xAxis, tickBuf[200];
     double acc, tickSpace;
     int i;
@@ -272,8 +263,9 @@ char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
     return xAxis;
 }
 
-char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
-        chartFormatter *formatter, double *yTicks, int *outlen) {
+static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
+        chartFormatter *formatter, double *yTicks, int *outlen)
+{
     char *yAxis, tickBuf[200];
     double acc, tickSpace;
     int i;
@@ -301,7 +293,6 @@ char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
     tickSpace = (((double)cDims->height) / numTicks) + 0.5;
     // y axis ticks
     for (i = 0; i < numTicks; ++i) {
-        printf("%.4f\n", yTicks[i]);
         formatter(yTicks[i], tickBuf);
         *outlen += snprintf(yAxis + *outlen, BUFSIZ,
                 "<g opactity=\"1\" transform=\"translate(0, %.10f)\">"
@@ -326,7 +317,8 @@ char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
 }
 
 char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
-        chartAxisFormatters *formatters, int width, int height, int *outlen) {
+        chartAxisFormatters *formatters, int width, int height, int *outlen)
+{
     chartDimensions cDims;
     chartFormatter *yFormatter, *xFormatter;
     chartPointArray cpArr;
@@ -339,13 +331,20 @@ char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
     xAxis = NULL;
     yAxis = NULL;
     *outlen = 0;
-    chartScale csy, csx, scales[2];
+    chartScale csy, csx, *scales[2];
+
+    cDims.marginBottom = 80;
+    cDims.marginLeft = 60;
+    cDims.marginTop = 10;
+    cDims.marginRight = 10;
+    cDims.width = width - cDims.marginLeft - cDims.marginRight;
+    cDims.height = height - cDims.marginBottom - cDims.marginTop;
 
     chartInitScale(&csy);
     chartInitScale(&csx);
 
-    scales[X_AXIS] = csx;
-    scales[Y_AXIS] = csy;
+    scales[X_AXIS] = &csx;
+    scales[Y_AXIS] = &csy;
 
     cpArr.len = arr_len;
     cpArr.xValues = x_values;
@@ -361,13 +360,6 @@ char *chartLineCreateSVG(double *x_values, double *y_values, int arr_len,
 
     _getRange(csx.valMin, csx.valMax, xTicks, 5);
     _getRange(csy.valMin, csy.valMax, yTicks, 12);
-
-    cDims.marginBottom = 80;
-    cDims.marginLeft = 60;
-    cDims.marginTop = 10;
-    cDims.marginRight = 10;
-    cDims.width = width - cDims.marginLeft - cDims.marginRight;
-    cDims.height = height - cDims.marginBottom - cDims.marginTop;
 
     lineBufLen = 0;
     yAxisLen = 0;
@@ -412,7 +404,8 @@ svg_finalise:
 static char *_chartMultiCreateSVG(int arrayCount, chartPointArray *cpArrays,
         chartDimensions *cDims, chartFormatter *yFormatter,
         chartFormatter *xFormatter, double *xTicks, int xTickCount,
-        double *yTicks, int yTickCount, chartScale *csy, int *outlen) {
+        double *yTicks, int yTickCount, chartScale *csy, int *outlen)
+{
     chartPointArray *cpArr;
     int i, j, lineBufLen, xAxisLen, yAxisLen, svgbufSize;
     char **lineChartBuffers, *xAxis, *yAxis, *svgbuf;
@@ -479,7 +472,8 @@ chart_finalise:
  */
 static char *_chartMultiCalculateAxisAndCreateSVG(chartDimensions *cDims,
         int arrayCount, chartPointArray *cpArrays, chartFormatter *yFormatter,
-        chartFormatter *xFormatter, int *outlen) {
+        chartFormatter *xFormatter, int *outlen)
+{
     chartPointArray *cpArr;
     chartScale csy;
     int i, j;
@@ -527,7 +521,8 @@ static char *_chartMultiCalculateAxisAndCreateSVG(chartDimensions *cDims,
  */
 char *chartLineMultiCreateSVG(int width, int height, int arrayCount,
         double **x_values_array, double **y_values_array, int array_len,
-        chartAxisFormatters *formatters, int *outlen) {
+        chartAxisFormatters *formatters, int *outlen)
+{
     char *svgbuf;
     int i;
     chartDimensions cDims;
@@ -774,8 +769,8 @@ int main(int argc, char **argv) {
         if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
             printJsonPathError(y_value_name, y_type, el->string);
 
-        xValues[i] = x;
-        yValues[i] = y;
+        xValues[i] = (double)x;
+        yValues[i] = (double)y;
         i++;
     }
 
