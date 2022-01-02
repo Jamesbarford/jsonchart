@@ -51,6 +51,9 @@
 
 #define X_AXIS 0
 #define Y_AXIS 1
+#define LINE_COLOR "#0052FF"
+#define AXIS_COLOR "#CCCCCC"
+#define TICK_COLOR "#333333"
 
 #define abs(x) ((x) >= 0 ? (x) : -1 * (x))
 
@@ -185,9 +188,9 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
 
     offset += sprintf(outstr,
             "<path fill=\"none\" "
-            "stroke=\"black\" stroke-width=\"1.5\" "
+            "stroke=\"%s\" stroke-width=\"1.3\" "
             "d=\"M%.10f,%.10f",
-            x, y);
+            LINE_COLOR, x, y);
 
     for (i = 1; i < cpArr->len; ++i) {
         x = (cDim->marginLeft + (cDim->width - acc)) - cDim->marginRight;
@@ -218,9 +221,10 @@ static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
     *outlen += snprintf(xAxis + *outlen, BUFSIZ,
             "<g>"
             // bottom
-            "<line fill=\"none\" stroke=\"black\" stroke-width=\"2\""
+            "<line fill=\"none\" stroke=\"%s\" stroke-width=\"1\""
             " x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\"></line>"
             "</g>",
+            AXIS_COLOR,
             // bottom positioning
             cDims->marginLeft - cDims->marginRight,
             cDims->width + cDims->marginLeft - cDims->marginRight,
@@ -242,12 +246,13 @@ static char *chartXAxisCreate(chartDimensions *cDims, int numTicks,
         formatter(xTicks[numTicks - 1 - i], tickBuf);
         *outlen += snprintf(xAxis + *outlen, BUFSIZ,
                 "<g opactity=\"1\" transform=\"translate(%10.f, 0)\">"
-                "<line stroke=\"black\" y2=\"%d\"></line>"
+                "<line stroke=\"%s\" y2=\"%d\"></line>"
                 "<text style=\"font-size: 8px; text-anchor: end;\" "
                 "fill=\"currentColor\""
                 " transform=\"rotate(-60)\" y=\"%d\" dy=\"-.1em\">%s</text>"
                 "</g>",
                 cDims->width - acc,
+                TICK_COLOR,
                 // the little dash
                 6,
                 // the number by the dash positioning
@@ -277,9 +282,10 @@ static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
     // left y axis line
     *outlen += snprintf(yAxis + *outlen, BUFSIZ,
             "<g>"
-            "<line fill=\"none\" stroke=\"black\" stroke-width=\"2\""
+            "<line fill=\"none\" stroke=\"%s\" stroke-width=\"1\""
             " x1=\"%d\" x2=\"%d\" y1=\"%d\" y2=\"%d\"></line>"
             "</g>",
+            AXIS_COLOR,
             cDims->marginLeft - cDims->marginRight,
             cDims->marginLeft - cDims->marginRight, cDims->marginTop,
             cDims->height);
@@ -296,13 +302,14 @@ static char *chartYAxisCreate(chartDimensions *cDims, int numTicks,
         formatter(yTicks[i], tickBuf);
         *outlen += snprintf(yAxis + *outlen, BUFSIZ,
                 "<g opactity=\"1\" transform=\"translate(0, %.10f)\">"
-                "<line stroke=\"black\" x2=\"%d\"></line>"
+                "<line stroke=\"%s\" x2=\"%d\"></line>"
                 "<text style=\"font-size: 8px; text-anchor: end;\" "
                 "fill=\"currentColor\" "
                 "dy=\"0.32em\">%s</text>"
                 "</g>",
                 // spacing
                 (cDims->height - acc),
+                TICK_COLOR,
                 // the little dash
                 6,
                 // the value to display
@@ -605,13 +612,15 @@ static void printUsage() {
             " --out-file <string>                      Name of outfile\n"
             " --x-name <string>                        Name of JSON key for x "
             "values\n"
-            " --x-type <string|long|int|float|double>  Data type for x values\n"
+            " --x-type <stueing|long|int|float|double>  Data type for x values\n"
             " --y-name <string>                        Name of JSON key for y "
             "values\n"
             " --y-type <string|long|int|float|double>  Data type for y values\n"
             "\nOptional:\n\n"
-            "  --width <int>   Width of the chart\n"
-            "  --height <int>  Height of the chart\n"
+            "  --width <int>               Width of the chart\n"
+            "  --height <int>              Height of the chart\n"
+            "  --reverse <'true'|'false'>  Should the data be plotted in reverse?"
+            " default false\n"
             "",
             progname);
     exit(EXIT_FAILURE);
@@ -640,6 +649,12 @@ static char *getValueName(int j_type) {
     }
 }
 
+static int getBoolean(char *boolean) {
+    if (strncasecmp(boolean, "true", 4) == 0) return 1;
+    if (strncasecmp(boolean, "false", 5) == 0) return 0;
+    return 0;
+}
+
 static int printAxisTypeWarning(char axis) {
     fprintf(stderr,
             "ERROR: --%c-type must be one of "
@@ -663,7 +678,7 @@ int main(int argc, char **argv) {
     progname = argv[0];
 
     cJSON *json, *el;
-    int x_type, y_type, has_err, arr_size;
+    int x_type, y_type, has_err, arr_size, reverse;
     char *x_value_name, *y_value_name, *filename, *out_filename, *raw_json,
             *svgbuf;
     char chartname[200];
@@ -674,6 +689,7 @@ int main(int argc, char **argv) {
     width = 300;
     height = 200;
     has_err = 0;
+    reverse = 0;
     x_type = y_type = -1;
     x_value_name = y_value_name = filename = out_filename = NULL;
 
@@ -695,6 +711,8 @@ int main(int argc, char **argv) {
             width = atoi(argv[++i]);
         } else if (strncmp(argv[i], "--height", 8) == 0) {
             height = atoi(argv[++i]);
+        } else if (strncmp(argv[i], "--reverse", 9) == 0) {
+            reverse = getBoolean(argv[++i]);
         }
     }
 
@@ -758,10 +776,12 @@ int main(int argc, char **argv) {
                 arr_size, strerror(errno));
         exit(EXIT_FAILURE);
     }
+    (void)reverse;
 
     i = arr_size;
     cJSON_ArrayForEach(el, json) {
         double x, y;
+        int idx = i-1;
 
         if (jpathGetValueFromPath(el, x_value_name, x_type, &x) == JPATH_ERR)
             printJsonPathError(x_value_name, x_type, el->string);
@@ -769,13 +789,12 @@ int main(int argc, char **argv) {
         if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
             printJsonPathError(y_value_name, y_type, el->string);
 
-        xValues[i-1] = (double)x;
-        yValues[i-1] = (double)y;
-        i--;
+        xValues[idx] = (double)x;
+        yValues[idx] = (double)y;
+        --i;
     }
 
     /* Create SVG Chart */
-
     chartname_len = snprintf(chartname, sizeof(chartname) * sizeof(char),
             "%s.svg", out_filename);
     chartname[chartname_len] = '\0';
