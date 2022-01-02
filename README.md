@@ -9,6 +9,12 @@ Currently only a line chart is supported.
 make
 ```
 
+And if you would like to install the program:
+
+```sh
+make && sudo make install
+```
+
 # Usage
 ```bash
 Usage: ./jsonchart [OPTIONS]

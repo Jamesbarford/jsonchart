@@ -1,11 +1,16 @@
 TARGET := ../jsonchart
 CC     := cc
 CFLAGS := -Wall -Werror -O2 -D JSON_CHART_CLI
+PREFIX?=/usr/local
 
 %.o: %.c
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 all: $(TARGET)
+
+install:
+	mkdir -p $(PREFIX)/bin
+	install -c -m 555 $(TARGET) $(PREFIX)/bin
 
 OBJS = cstr.o cJSON.o chart.o jpath.o
 
