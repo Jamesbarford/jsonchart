@@ -673,11 +673,48 @@ static void printJsonPathError(char *path, int j_type, char *strvalue) {
             path, getValueName(j_type), strvalue);
 }
 
+static void fillAxis(cJSON *json, int arr_len, double *x_values,
+        double *y_values, int x_type, int y_type, char *x_value_name,
+        char *y_value_name, int reverse)
+{
+    cJSON *el;
+    int i;
+    double x, y;
+
+    if (!reverse) {
+        i = 0;
+        cJSON_ArrayForEach(el, json) {
+            if (jpathGetValueFromPath(el, x_value_name, x_type, &x) == JPATH_ERR)
+                printJsonPathError(x_value_name, x_type, el->string);
+
+            if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
+                printJsonPathError(y_value_name, y_type, el->string);
+
+            x_values[i] = (double)x;
+            y_values[i] = (double)y;
+            i++;
+        }
+    } else {
+        i = arr_len;
+        cJSON_ArrayForEach(el, json) {
+            if (jpathGetValueFromPath(el, x_value_name, x_type, &x) == JPATH_ERR)
+                printJsonPathError(x_value_name, x_type, el->string);
+
+            if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
+                printJsonPathError(y_value_name, y_type, el->string);
+
+            x_values[i-1] = (double)x;
+            y_values[i-1] = (double)y;
+            --i;
+        }
+    }
+}
+
 /* This assumes an array of json is being passed in, and both must be numeric */
 int main(int argc, char **argv) {
     progname = argv[0];
 
-    cJSON *json, *el;
+    cJSON *json;
     int x_type, y_type, has_err, arr_size, reverse;
     char *x_value_name, *y_value_name, *filename, *out_filename, *raw_json,
             *svgbuf;
@@ -689,7 +726,9 @@ int main(int argc, char **argv) {
     width = 300;
     height = 200;
     has_err = 0;
-    reverse = 0;
+    /* We by default do plot the data in the reverse order from how it is collected
+     * from the JSON*/
+    reverse = 1;
     x_type = y_type = -1;
     x_value_name = y_value_name = filename = out_filename = NULL;
 
@@ -712,7 +751,12 @@ int main(int argc, char **argv) {
         } else if (strncmp(argv[i], "--height", 8) == 0) {
             height = atoi(argv[++i]);
         } else if (strncmp(argv[i], "--reverse", 9) == 0) {
-            reverse = getBoolean(argv[++i]);
+            /**
+             * This is a bit messed up as we by default do plot the data in reverse.
+             * But from a cli users perspective '--reverse true' would be for us
+             * plotting the data in the order we recieved it.
+             */
+            reverse = getBoolean(argv[++i]) == 1 ? 0 : 1;
         }
     }
 
@@ -778,21 +822,8 @@ int main(int argc, char **argv) {
     }
     (void)reverse;
 
-    i = arr_size;
-    cJSON_ArrayForEach(el, json) {
-        double x, y;
-        int idx = i-1;
-
-        if (jpathGetValueFromPath(el, x_value_name, x_type, &x) == JPATH_ERR)
-            printJsonPathError(x_value_name, x_type, el->string);
-
-        if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
-            printJsonPathError(y_value_name, y_type, el->string);
-
-        xValues[idx] = (double)x;
-        yValues[idx] = (double)y;
-        --i;
-    }
+    fillAxis(json, arr_size, xValues, yValues, x_type, y_type, x_value_name,
+            y_value_name, reverse);
 
     /* Create SVG Chart */
     chartname_len = snprintf(chartname, sizeof(chartname) * sizeof(char),
