@@ -189,7 +189,7 @@ static char *_chartLinePointsToString(chartPointArray *cpArr,
             "d=\"M%.10f,%.10f",
             x, y);
 
-    for (i = cpArr->len; i >= 0; --i) {
+    for (i = 1; i < cpArr->len; ++i) {
         x = (cDim->marginLeft + (cDim->width - acc)) - cDim->marginRight;
         y = cDim->height - linearScale(csy, cpArr->yValues[i]);
 
@@ -759,7 +759,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    i = 0;
+    i = arr_size;
     cJSON_ArrayForEach(el, json) {
         double x, y;
 
@@ -769,9 +769,9 @@ int main(int argc, char **argv) {
         if (jpathGetValueFromPath(el, y_value_name, y_type, &y) == JPATH_ERR)
             printJsonPathError(y_value_name, y_type, el->string);
 
-        xValues[i] = (double)x;
-        yValues[i] = (double)y;
-        i++;
+        xValues[i-1] = (double)x;
+        yValues[i-1] = (double)y;
+        i--;
     }
 
     /* Create SVG Chart */
