@@ -109,8 +109,8 @@ static void _yAxisDefaultFormatter(double val, char *buf) {
  * {100, 250, 400, 550, 700, 850, 1000}
  */
 static void _getRange(double min, double max, double *out, int outlen) {
-    double difference, _outlen, step;
-    unsigned long iters, j, i;
+    double difference, _outlen, step, iters, i;
+    unsigned int j;
 
     _outlen = outlen - 1;
 
